@@ -6,7 +6,7 @@ export function getGMGNUrl(chain: ChainType, type: "token" | "address", address:
     ethereum: "eth",
     bsc: "bsc",
     base: "base",
-    unknown: ""
+    unknown: "",
   };
   const chainPrefix = chainMap[chain];
   let url = `https://gmgn.ai/${chainPrefix}/${type}/${address}`;
@@ -22,7 +22,7 @@ export function getExplorerUrl(chain: ChainType, type: "address" | "tx", value: 
     ethereum: `https://etherscan.io/${type}/${value}`,
     bsc: `https://bscscan.com/${type}/${value}`,
     base: `https://basescan.org/${type}/${value}`,
-    unknown: ""
+    unknown: "",
   };
 
   return explorers[chain] || "";

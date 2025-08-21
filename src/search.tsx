@@ -1,14 +1,14 @@
 import { Form, ActionPanel, Action, showToast, Toast, getPreferenceValues, open } from "@raycast/api";
 import { useState } from "react";
-import { 
-  isSolanaAddress, 
-  isEVMAddress, 
+import {
+  isSolanaAddress,
+  isEVMAddress,
   isTransactionHash,
   checkSolanaToken,
   checkEVMToken,
   checkEVMNonce,
   detectTransactionChain,
-  ChainType
+  ChainType,
 } from "./utils/blockchain";
 import { getGMGNUrl, getExplorerUrl, getTransactionExplorerUrl } from "./utils/urls";
 
@@ -41,26 +41,24 @@ export default function SearchCommand() {
         const url = getTransactionExplorerUrl(chain, input);
         await open(url);
         showToast({ style: Toast.Style.Success, title: "Opening transaction explorer" });
-      } 
-      else if (isSolanaAddress(input)) {
+      } else if (isSolanaAddress(input)) {
         const isToken = await checkSolanaToken(input);
         let url: string;
-        
+
         if (preferences.defaultTarget === "explorer") {
           url = getExplorerUrl("solana", "address", input);
         } else {
           url = getGMGNUrl("solana", isToken ? "token" : "address", input, makerAddress.trim() || undefined);
         }
-        
+
         await open(url);
-        showToast({ 
-          style: Toast.Style.Success, 
-          title: `Opening Solana ${isToken ? "token" : "address"} on ${preferences.defaultTarget === "explorer" ? "Solscan" : "GMGN"}`
+        showToast({
+          style: Toast.Style.Success,
+          title: `Opening Solana ${isToken ? "token" : "address"} on ${preferences.defaultTarget === "explorer" ? "Solscan" : "GMGN"}`,
         });
-      } 
-      else if (isEVMAddress(input)) {
+      } else if (isEVMAddress(input)) {
         const tokenCheck = await checkEVMToken(input);
-        
+
         if (tokenCheck.isToken && tokenCheck.chain) {
           let url: string;
           if (preferences.defaultTarget === "explorer") {
@@ -69,9 +67,9 @@ export default function SearchCommand() {
             url = getGMGNUrl(tokenCheck.chain, "token", input, makerAddress.trim() || undefined);
           }
           await open(url);
-          showToast({ 
-            style: Toast.Style.Success, 
-            title: `Opening ${tokenCheck.chain} token on ${preferences.defaultTarget === "explorer" ? "explorer" : "GMGN"}`
+          showToast({
+            style: Toast.Style.Success,
+            title: `Opening ${tokenCheck.chain} token on ${preferences.defaultTarget === "explorer" ? "explorer" : "GMGN"}`,
           });
         } else {
           const nonceChain = await checkEVMNonce(input);
@@ -83,9 +81,9 @@ export default function SearchCommand() {
               url = getGMGNUrl(nonceChain, "address", input, makerAddress.trim() || undefined);
             }
             await open(url);
-            showToast({ 
-              style: Toast.Style.Success, 
-              title: `Opening ${nonceChain} address on ${preferences.defaultTarget === "explorer" ? "explorer" : "GMGN"}`
+            showToast({
+              style: Toast.Style.Success,
+              title: `Opening ${nonceChain} address on ${preferences.defaultTarget === "explorer" ? "explorer" : "GMGN"}`,
             });
           } else {
             const defaultChain: ChainType = "ethereum";
@@ -96,21 +94,20 @@ export default function SearchCommand() {
               url = getGMGNUrl(defaultChain, "address", input, makerAddress.trim() || undefined);
             }
             await open(url);
-            showToast({ 
-              style: Toast.Style.Success, 
-              title: `Opening address on Ethereum (default) ${preferences.defaultTarget === "explorer" ? "explorer" : "GMGN"}`
+            showToast({
+              style: Toast.Style.Success,
+              title: `Opening address on Ethereum (default) ${preferences.defaultTarget === "explorer" ? "explorer" : "GMGN"}`,
             });
           }
         }
-      } 
-      else {
+      } else {
         showToast({ style: Toast.Style.Failure, title: "Invalid address or transaction hash" });
       }
     } catch (error) {
-      showToast({ 
-        style: Toast.Style.Failure, 
-        title: "Error processing request", 
-        message: error instanceof Error ? error.message : "Unknown error"
+      showToast({
+        style: Toast.Style.Failure,
+        title: "Error processing request",
+        message: error instanceof Error ? error.message : "Unknown error",
       });
     } finally {
       setIsLoading(false);
@@ -140,9 +137,9 @@ export default function SearchCommand() {
         value={makerAddress}
         onChange={setMakerAddress}
       />
-      <Form.Description 
-        title="Info" 
-        text={`Default target: ${preferences.defaultTarget === "explorer" ? "Block Explorer" : "GMGN"}\nMaker address will append ?maker= parameter to GMGN URLs`} 
+      <Form.Description
+        title="Info"
+        text={`Default target: ${preferences.defaultTarget === "explorer" ? "Block Explorer" : "GMGN"}\nMaker address will append ?maker= parameter to GMGN URLs`}
       />
     </Form>
   );
