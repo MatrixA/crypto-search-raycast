@@ -4,7 +4,7 @@
   "title": "Crypto Search",
   "description": "Quick search for crypto addresses and transactions across multiple chains",
   "icon": "icon.png",
-  "author": "MatrixA",
+  "author": "fernando_jacob",
   "categories": ["Finance", "Web"],
   "license": "MIT",
   "commands": [
