@@ -8,6 +8,7 @@ const SOLANA_RPCS = [
   "https://solana.public-rpc.com",
 ];
 const ETH_RPCS = [
+  "https://mainnet.infura.io",
   "https://1rpc.io/eth",
   "https://rpc.mevblocker.io/fast",
   "https://rpc.mevblocker.io/noreverts",
@@ -64,38 +65,92 @@ export function isTransactionHash(hash: string): boolean {
 }
 
 export async function checkSolanaToken(address: string): Promise<boolean> {
-  for (const rpc of SOLANA_RPCS) {
+  if (!checkRateLimit("solana")) {
+    throw new Error("Rate limit exceeded. Please try again later.");
+  }
+
+  const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+  const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+
+  // Parallel RPC calls with timeout
+  const checkPromises = SOLANA_RPCS.slice(0, 3).map(async (rpc) => {
     try {
       const connection = new Connection(rpc);
       const pubkey = new PublicKey(address);
 
-      const accountInfo = await connection.getAccountInfo(pubkey);
-      if (!accountInfo) continue;
+      const accountInfo = await Promise.race([
+        connection.getAccountInfo(pubkey),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), RPC_TIMEOUT)),
+      ]);
 
-      const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-      const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
-
+      if (!accountInfo) return false;
       return accountInfo.owner.equals(TOKEN_PROGRAM_ID) || accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
     } catch {
-      continue;
+      return false;
     }
-  }
-  return false;
+  });
+
+  const results = await Promise.all(checkPromises);
+  return results.some((result: boolean) => result === true);
 }
 
-async function tryProviders(rpcs: string[]): Promise<ethers.JsonRpcProvider | null> {
+// Cache for working RPC providers
+const providerCache = new Map<string, { provider: ethers.JsonRpcProvider; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Rate limiting
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 30;
+
+// Standardized timeout for all RPC operations
+const RPC_TIMEOUT = 10000; // 10 seconds
+
+function checkRateLimit(identifier: string): boolean {
+  const now = Date.now();
+  const limit = rateLimitMap.get(identifier);
+
+  if (!limit || now > limit.resetTime) {
+    rateLimitMap.set(identifier, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return true;
+  }
+
+  if (limit.count >= MAX_REQUESTS_PER_WINDOW) {
+    return false;
+  }
+
+  limit.count++;
+  return true;
+}
+
+async function tryProviders(rpcs: string[], useCache = true): Promise<ethers.JsonRpcProvider | null> {
+  // Check cache first
+  if (useCache) {
+    for (const rpc of rpcs) {
+      const cached = providerCache.get(rpc);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        return cached.provider;
+      }
+    }
+  }
+
+  // Try providers with exponential backoff
+  let backoffMs = 100;
   for (const rpc of rpcs) {
     try {
-      console.log(`Trying provider: ${rpc}`);
       const provider = new ethers.JsonRpcProvider(rpc);
       await Promise.race([
         provider.getNetwork(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), RPC_TIMEOUT)),
       ]);
-      console.log(`Provider ${rpc} working!`);
+
+      // Cache successful provider
+      providerCache.set(rpc, { provider, timestamp: Date.now() });
       return provider;
-    } catch (error) {
-      console.log(`Provider ${rpc} failed: ${error}`);
+    } catch {
+      // Exponential backoff with max 1 second
+      await new Promise((resolve) => setTimeout(resolve, Math.min(backoffMs, 1000)));
+      backoffMs *= 2;
       continue;
     }
   }
@@ -103,6 +158,10 @@ async function tryProviders(rpcs: string[]): Promise<ethers.JsonRpcProvider | nu
 }
 
 export async function checkEVMToken(address: string): Promise<{ chain: ChainType | null; isToken: boolean }> {
+  if (!checkRateLimit("evm")) {
+    throw new Error("Rate limit exceeded. Please try again later.");
+  }
+
   const chains: { chain: ChainType; rpcs: string[] }[] = [
     { chain: "ethereum", rpcs: ETH_RPCS },
     { chain: "bsc", rpcs: BSC_RPCS },
@@ -126,7 +185,7 @@ export async function checkEVMToken(address: string): Promise<{ chain: ChainType
         try {
           await Promise.race([
             contract.totalSupply(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 3000)),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), RPC_TIMEOUT)),
           ]);
           return { chain, isToken: true };
         } catch {
@@ -146,6 +205,10 @@ export async function checkEVMToken(address: string): Promise<{ chain: ChainType
 }
 
 export async function checkEVMNonce(address: string): Promise<ChainType | null> {
+  if (!checkRateLimit("evm-nonce")) {
+    throw new Error("Rate limit exceeded. Please try again later.");
+  }
+
   const chains: { chain: ChainType; rpcs: string[] }[] = [
     { chain: "ethereum", rpcs: ETH_RPCS },
     { chain: "bsc", rpcs: BSC_RPCS },
@@ -172,10 +235,7 @@ export async function checkEVMNonce(address: string): Promise<ChainType | null> 
 }
 
 export async function detectTransactionChain(hash: string): Promise<ChainType> {
-  console.log(`Detecting transaction chain for hash: ${hash}`);
-
   if (!isTransactionHash(hash)) {
-    console.log("Hash format invalid");
     return "unknown";
   }
 
@@ -184,17 +244,12 @@ export async function detectTransactionChain(hash: string): Promise<ChainType> {
 
   // Solana check - use format-based detection since RPC calls timeout in Raycast
   if (!hash.startsWith("0x") && hash.length >= 80 && hash.length <= 90) {
-    console.log(`Detected Solana transaction format: ${hash} (length: ${hash.length})`);
     // Basic base58 validation for Solana transaction signatures
     if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(hash)) {
-      console.log(`Solana result: DETECTED based on format`);
       checkPromises.push(Promise.resolve("solana"));
     } else {
-      console.log(`Solana result: Invalid base58 format`);
       checkPromises.push(Promise.resolve(null));
     }
-  } else {
-    console.log(`Skipping Solana - hash format: length=${hash.length}, startsWith0x=${hash.startsWith("0x")}`);
   }
 
   // EVM chains check (parallel)
@@ -214,7 +269,7 @@ export async function detectTransactionChain(hash: string): Promise<ChainType> {
               const provider = new ethers.JsonRpcProvider(rpc);
               const tx = await Promise.race([
                 provider.getTransaction(hash),
-                new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), 2000)),
+                new Promise<null>((_, reject) => setTimeout(() => reject(new Error("timeout")), RPC_TIMEOUT)),
               ]);
               return tx ? chain : null;
             } catch {
@@ -236,7 +291,6 @@ export async function detectTransactionChain(hash: string): Promise<ChainType> {
       .filter((result) => result.status === "fulfilled" && result.value !== null)
       .map((result) => (result as PromiseFulfilledResult<ChainType>).value)[0];
 
-    console.log(`Final result: ${found || "unknown"}`);
     return found || "unknown";
   } catch {
     return "unknown";

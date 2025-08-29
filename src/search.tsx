@@ -104,10 +104,23 @@ export default function SearchCommand() {
         showToast({ style: Toast.Style.Failure, title: "Invalid address or transaction hash" });
       }
     } catch (error) {
+      // Sanitize error messages to prevent information disclosure
+      let errorMessage = "An error occurred while processing your request";
+
+      if (error instanceof Error) {
+        if (error.message.includes("Rate limit")) {
+          errorMessage = "Too many requests. Please wait a moment and try again.";
+        } else if (error.message.includes("timeout")) {
+          errorMessage = "Request timed out. Please try again.";
+        } else if (error.message.includes("network") || error.message.includes("connection")) {
+          errorMessage = "Network error. Please check your connection.";
+        }
+      }
+
       showToast({
         style: Toast.Style.Failure,
-        title: "Error processing request",
-        message: error instanceof Error ? error.message : "Unknown error",
+        title: "Error",
+        message: errorMessage,
       });
     } finally {
       setIsLoading(false);
